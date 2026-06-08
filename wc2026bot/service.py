@@ -109,6 +109,52 @@ def is_locked(match: Match, now: datetime | None = None) -> bool:
     return _now(now) >= match.lock_utc
 
 
+@dataclass(frozen=True)
+class OpenMatchView:
+    """An open match plus this player's existing prediction (if any)."""
+
+    match: Match
+    pred_home: int | None
+    pred_away: int | None
+
+    @property
+    def has_prediction(self) -> bool:
+        return self.pred_home is not None
+
+
+def open_matches_for_player(
+    session: Session,
+    telegram_id: int,
+    only_unpredicted: bool = True,
+    now: datetime | None = None,
+) -> list[OpenMatchView]:
+    """Open matches annotated with the player's prediction.
+
+    only_unpredicted=True  -> just matches the player hasn't predicted yet.
+    only_unpredicted=False -> all open matches, predicted ones flagged.
+    """
+    matches = open_matches(session, now=now)
+    preds = {
+        p.match_id: p
+        for p in session.scalars(
+            select(Prediction).where(Prediction.player_id == telegram_id)
+        ).all()
+    }
+    views = []
+    for m in matches:
+        p = preds.get(m.id)
+        if only_unpredicted and p is not None:
+            continue
+        views.append(
+            OpenMatchView(
+                match=m,
+                pred_home=p.pred_home if p else None,
+                pred_away=p.pred_away if p else None,
+            )
+        )
+    return views
+
+
 # --------------------------------------------------------------------------- #
 # Predictions
 # --------------------------------------------------------------------------- #

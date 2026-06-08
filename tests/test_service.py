@@ -14,6 +14,7 @@ from wc2026bot.service import (
     is_locked,
     my_predictions,
     open_matches,
+    open_matches_for_player,
     register_player,
     set_champion_bet,
     upsert_prediction,
@@ -109,6 +110,37 @@ class TestOpenMatches:
         add_match(db_session, ext_id=1, kickoff=NOW + timedelta(hours=2),
                   status=MatchStatus.FINISHED)
         assert open_matches(db_session, now=NOW) == []
+
+
+class TestOpenMatchesForPlayer:
+    def test_only_unpredicted_hides_predicted(self, db_session):
+        register_player(db_session, 1, "Zico")
+        m1 = add_match(db_session, ext_id=1, kickoff=NOW + timedelta(hours=2))
+        m2 = add_match(db_session, ext_id=2, kickoff=NOW + timedelta(hours=3))
+        upsert_prediction(db_session, 1, m1.id, 2, 1, now=NOW)
+        views = open_matches_for_player(db_session, 1, only_unpredicted=True, now=NOW)
+        assert [v.match.id for v in views] == [m2.id]
+
+    def test_show_all_includes_predicted_with_flag(self, db_session):
+        register_player(db_session, 1, "Zico")
+        m1 = add_match(db_session, ext_id=1, kickoff=NOW + timedelta(hours=2))
+        m2 = add_match(db_session, ext_id=2, kickoff=NOW + timedelta(hours=3))
+        upsert_prediction(db_session, 1, m1.id, 2, 1, now=NOW)
+        views = {v.match.id: v for v in
+                 open_matches_for_player(db_session, 1, only_unpredicted=False, now=NOW)}
+        assert views[m1.id].has_prediction is True
+        assert (views[m1.id].pred_home, views[m1.id].pred_away) == (2, 1)
+        assert views[m2.id].has_prediction is False
+
+    def test_other_players_predictions_dont_leak(self, db_session):
+        register_player(db_session, 1, "Zico")
+        register_player(db_session, 2, "Pele")
+        m1 = add_match(db_session, ext_id=1, kickoff=NOW + timedelta(hours=2))
+        upsert_prediction(db_session, 2, m1.id, 3, 0, now=NOW)  # Pele predicts
+        # Zico hasn't predicted -> match still shows for Zico as unpredicted.
+        views = open_matches_for_player(db_session, 1, only_unpredicted=True, now=NOW)
+        assert [v.match.id for v in views] == [m1.id]
+        assert views[0].has_prediction is False
 
 
 class TestLock:

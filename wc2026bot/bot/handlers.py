@@ -35,6 +35,7 @@ from wc2026bot.service import (
     get_player,
     my_predictions,
     open_matches,
+    open_matches_for_player,
     register_player,
     set_champion_bet,
     upsert_prediction,
@@ -45,6 +46,7 @@ logger = logging.getLogger(__name__)
 # Conversation states
 ASK_NICK, PICK_MATCH, ASK_SCORE = range(3)
 ASK_CHAMPION = 10
+ASK_NEW_NICK = 20
 
 
 CANCEL_DATA = "cancel_flow"
@@ -84,10 +86,11 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if player is not None:
         await update.message.reply_text(WELCOME, parse_mode=ParseMode.HTML)
         return ConversationHandler.END
+    # No cancel button on first-time registration: a nickname is required to
+    # use the bot, so there's nothing useful to cancel into.
     await update.message.reply_text(
         "Bem-vindo! Escolhe o teu <b>nickname</b> (3–20 caracteres, letras/números/_):",
         parse_mode=ParseMode.HTML,
-        reply_markup=_cancel_kb(),
     )
     return ASK_NICK
 
@@ -112,22 +115,45 @@ async def on_nickname(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 # /nick
 # --------------------------------------------------------------------------- #
 
-async def cmd_nick(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not context.args:
-        await update.message.reply_text("Uso: /nick <novo_nickname>")
-        return
+async def cmd_nick(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """`/nick Name` changes directly; `/nick` alone opens a cancellable prompt."""
+    with _session(context) as session:
+        if get_player(session, update.effective_user.id) is None:
+            await update.message.reply_text("Usa /start primeiro.")
+            return ConversationHandler.END
+
+    if context.args:
+        # Direct one-shot: /nick Name — apply and end, no retry loop.
+        await _apply_nick(update, context, " ".join(context.args))
+        return ConversationHandler.END
+
+    await update.message.reply_text(
+        "Escreve o teu novo <b>nickname</b> (3–20 caracteres, letras/números/_):",
+        parse_mode=ParseMode.HTML,
+        reply_markup=_cancel_kb(),
+    )
+    return ASK_NEW_NICK
+
+
+async def on_new_nick(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # Interactive flow: on error, stay in the prompt so the user can retry.
+    ok = await _apply_nick(update, context, update.message.text)
+    return ConversationHandler.END if ok else ASK_NEW_NICK
+
+
+async def _apply_nick(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
+    """Apply a nickname change. Returns True on success, False on ServiceError."""
     try:
         with _session(context) as session:
-            player = change_nickname(
-                session, update.effective_user.id, " ".join(context.args)
-            )
+            player = change_nickname(session, update.effective_user.id, text)
     except ServiceError as exc:
         await update.message.reply_text(str(exc))
-        return
+        return False
     await update.message.reply_text(
         f"Nickname alterado para <b>{html.escape(player.nickname)}</b>.",
         parse_mode=ParseMode.HTML,
     )
+    return True
 
 
 # --------------------------------------------------------------------------- #
@@ -151,24 +177,83 @@ async def cmd_proximos(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 # /prever  (conversation: pick match -> enter score)
 # --------------------------------------------------------------------------- #
 
-async def cmd_prever(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+def _build_prever_view(views, show_all: bool) -> tuple[str, InlineKeyboardMarkup]:
+    """Build the match-picker text + keyboard. Predicted matches (in show-all
+    mode) are flagged with ✏️ and their current score."""
+    buttons = []
+    for v in views[:20]:
+        m = v.match
+        if v.has_prediction:
+            label = f"✏️ {m.home} {v.pred_home}-{v.pred_away} {m.away}"
+        else:
+            label = f"{m.home} vs {m.away}"
+        buttons.append([InlineKeyboardButton(label, callback_data=f"match:{m.id}")])
+
+    if show_all:
+        toggle = InlineKeyboardButton(
+            "🔵 A mostrar todos — ver só por prever", callback_data="prever:pending"
+        )
+        header = "Escolhe o jogo (✏️ = já tens previsão):"
+    else:
+        toggle = InlineKeyboardButton(
+            "👁 Ver todos (incl. já previstos)", callback_data="prever:all"
+        )
+        header = "Escolhe um jogo por prever:"
+
+    extra = [[toggle]] + buttons
+    return header, _cancel_kb(extra)
+
+
+async def _send_prever(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                       show_all: bool, edit: bool) -> int:
+    uid = update.effective_user.id
     with _session(context) as session:
-        if get_player(session, update.effective_user.id) is None:
-            await update.message.reply_text("Usa /start primeiro.")
+        if get_player(session, uid) is None:
+            target = update.callback_query.message if edit else update.message
+            await target.reply_text("Usa /start primeiro.")
             return ConversationHandler.END
-        matches = open_matches(session)
-    if not matches:
-        await update.message.reply_text("Não há jogos abertos para previsão agora.")
+        views = open_matches_for_player(session, uid, only_unpredicted=not show_all)
+
+    if not views:
+        msg = (
+            "Não há jogos abertos para previsão agora."
+            if show_all
+            else "Já fizeste previsão para todos os jogos abertos! 🎉\n"
+                 "Usa o botão abaixo para rever ou editar."
+        )
+        if not show_all:
+            # Offer the toggle even when nothing is pending, so they can edit.
+            kb = _cancel_kb([[InlineKeyboardButton(
+                "👁 Ver todos (incl. já previstos)", callback_data="prever:all")]])
+            if edit:
+                await update.callback_query.edit_message_text(msg, reply_markup=kb)
+            else:
+                await update.message.reply_text(msg, reply_markup=kb)
+            return PICK_MATCH
+        if edit:
+            await update.callback_query.edit_message_text(msg)
+        else:
+            await update.message.reply_text(msg)
         return ConversationHandler.END
 
-    buttons = [
-        [InlineKeyboardButton(f"{m.home} vs {m.away}", callback_data=f"match:{m.id}")]
-        for m in matches[:20]
-    ]
-    await update.message.reply_text(
-        "Escolhe o jogo:", reply_markup=_cancel_kb(buttons)
-    )
+    header, kb = _build_prever_view(views, show_all)
+    if edit:
+        await update.callback_query.edit_message_text(header, reply_markup=kb)
+    else:
+        await update.message.reply_text(header, reply_markup=kb)
     return PICK_MATCH
+
+
+async def cmd_prever(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # Default: only matches without a prediction yet.
+    return await _send_prever(update, context, show_all=False, edit=False)
+
+
+async def on_prever_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    show_all = query.data == "prever:all"
+    return await _send_prever(update, context, show_all=show_all, edit=True)
 
 
 async def on_match_picked(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -316,7 +401,10 @@ def build_handlers() -> list:
     prever_conv = ConversationHandler(
         entry_points=[CommandHandler("prever", cmd_prever)],
         states={
-            PICK_MATCH: [CallbackQueryHandler(on_match_picked, pattern=r"^match:")],
+            PICK_MATCH: [
+                CallbackQueryHandler(on_prever_toggle, pattern=r"^prever:(all|pending)$"),
+                CallbackQueryHandler(on_match_picked, pattern=r"^match:"),
+            ],
             ASK_SCORE: [MessageHandler(filters.TEXT & ~filters.COMMAND, on_score)],
         },
         fallbacks=cancel_fallbacks,
@@ -326,11 +414,16 @@ def build_handlers() -> list:
         states={ASK_CHAMPION: [MessageHandler(filters.TEXT & ~filters.COMMAND, on_champion)]},
         fallbacks=cancel_fallbacks,
     )
+    nick_conv = ConversationHandler(
+        entry_points=[CommandHandler("nick", cmd_nick)],
+        states={ASK_NEW_NICK: [MessageHandler(filters.TEXT & ~filters.COMMAND, on_new_nick)]},
+        fallbacks=cancel_fallbacks,
+    )
     return [
         start_conv,
         prever_conv,
         campeao_conv,
-        CommandHandler("nick", cmd_nick),
+        nick_conv,
         CommandHandler("proximos", cmd_proximos),
         CommandHandler("minhas", cmd_minhas),
         CommandHandler("tabela", cmd_tabela),
