@@ -22,16 +22,6 @@ def _esc(text: str) -> str:
     return html.escape(text)
 
 
-WELCOME = (
-    "⚽ <b>Bólão Mundial 2026</b>\n\n"
-    "Prevê o resultado de cada jogo. Pontuação:\n"
-    "• Acertar a direção (V/E/D): <b>+3</b>\n"
-    "• Acertar o resultado exato: <b>+2</b> extra (total 5)\n"
-    "• Apostar no campeão certo: <b>+100</b> no fim\n\n"
-    "As previsões fecham uns minutos antes de cada jogo e ninguém vê as tuas.\n\n"
-    "Comandos: /proximos /prever /minhas /campeao /tabela /nick /ajuda"
-)
-
 HELP = (
     "<b>Comandos</b>\n"
     "/proximos – jogos abertos para previsão\n"
@@ -41,6 +31,16 @@ HELP = (
     "/tabela – ver a tua posição atual\n"
     "/nick – mudar o teu nickname\n"
     "/ajuda – esta mensagem"
+)
+
+WELCOME = (
+    "⚽ <b>Previsões Mundial 2026</b>\n\n"
+    "Prevê o resultado de cada jogo. Pontuação:\n"
+    "• Acertar a direção (V/E/D): <b>+3</b>\n"
+    "• Acertar o resultado exato: <b>+2</b> extra (total 5)\n"
+    "• Apostar no campeão certo: <b>+100</b> no fim\n\n"
+    "As previsões fecham uns minutos antes de cada jogo e ninguém vê as tuas.\n\n"
+    f"{HELP}"
 )
 
 
