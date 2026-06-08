@@ -11,7 +11,7 @@ import logging
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
-from telegram.helpers import escape_markdown
+import html
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -63,11 +63,11 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     with _session(context) as session:
         player = get_player(session, update.effective_user.id)
     if player is not None:
-        await update.message.reply_text(WELCOME, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(WELCOME, parse_mode=ParseMode.HTML)
         return ConversationHandler.END
     await update.message.reply_text(
-        "Bem-vindo! Escolhe o teu *nickname* (3–20 caracteres, letras/números/_):",
-        parse_mode=ParseMode.MARKDOWN,
+        "Bem-vindo! Escolhe o teu <b>nickname</b> (3–20 caracteres, letras/números/_):",
+        parse_mode=ParseMode.HTML,
     )
     return ASK_NICK
 
@@ -82,8 +82,8 @@ async def on_nickname(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await update.message.reply_text(str(exc))
         return ASK_NICK
     await update.message.reply_text(
-        f"Registado como *{escape_markdown(player.nickname, version=1)}*! 🎉\n\n{WELCOME}",
-        parse_mode=ParseMode.MARKDOWN,
+        f"Registado como <b>{html.escape(player.nickname)}</b>! 🎉\n\n{WELCOME}",
+        parse_mode=ParseMode.HTML,
     )
     return ConversationHandler.END
 
@@ -105,8 +105,8 @@ async def cmd_nick(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(str(exc))
         return
     await update.message.reply_text(
-        f"Nickname alterado para *{escape_markdown(player.nickname, version=1)}*.",
-        parse_mode=ParseMode.MARKDOWN,
+        f"Nickname alterado para <b>{html.escape(player.nickname)}</b>.",
+        parse_mode=ParseMode.HTML,
     )
 
 
@@ -120,11 +120,11 @@ async def cmd_proximos(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not matches:
         await update.message.reply_text("Não há jogos abertos para previsão agora.")
         return
-    lines = ["*Jogos abertos*"]
+    lines = ["<b>Jogos abertos</b>"]
     for m in matches[:20]:
         lines.append("• " + fmt_match_line(m.home, m.away, m.lock_utc))
     lines.append("\nUsa /prever para fazer uma previsão.")
-    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
 # --------------------------------------------------------------------------- #
@@ -157,8 +157,8 @@ async def on_match_picked(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     match_id = int(query.data.split(":", 1)[1])
     context.user_data["match_id"] = match_id
     await query.edit_message_text(
-        "Escreve a tua previsão no formato *golos-golos* (ex.: `2-1`):",
-        parse_mode=ParseMode.MARKDOWN,
+        "Escreve a tua previsão no formato <b>golos-golos</b> (ex.: <code>2-1</code>):",
+        parse_mode=ParseMode.HTML,
     )
     return ASK_SCORE
 
@@ -184,8 +184,10 @@ def parse_score(text: str) -> tuple[int, int] | None:
 async def on_score(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     parsed = parse_score(update.message.text)
     if parsed is None:
-        await update.message.reply_text("Formato inválido. Tenta algo como `2-1`.",
-                                        parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(
+            "Formato inválido. Tenta algo como <code>2-1</code>.",
+            parse_mode=ParseMode.HTML,
+        )
         return ASK_SCORE
     match_id = context.user_data.get("match_id")
     try:
@@ -197,9 +199,9 @@ async def on_score(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await update.message.reply_text(str(exc))
         return ConversationHandler.END
     await update.message.reply_text(
-        f"✅ Previsão guardada: *{parsed[0]}-{parsed[1]}*. "
+        f"✅ Previsão guardada: <b>{parsed[0]}-{parsed[1]}</b>. "
         "Podes editar até ao fecho com /prever.",
-        parse_mode=ParseMode.MARKDOWN,
+        parse_mode=ParseMode.HTML,
     )
     context.user_data.pop("match_id", None)
     return ConversationHandler.END
@@ -213,7 +215,7 @@ async def cmd_minhas(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     with _session(context) as session:
         views = my_predictions(session, update.effective_user.id)
     await update.message.reply_text(
-        fmt_my_predictions(views), parse_mode=ParseMode.MARKDOWN
+        fmt_my_predictions(views), parse_mode=ParseMode.HTML
     )
 
 
@@ -227,9 +229,9 @@ async def cmd_campeao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
             await update.message.reply_text("Usa /start primeiro.")
             return ConversationHandler.END
     await update.message.reply_text(
-        "Em que seleção apostas para *campeã do Mundial*? Escreve o nome do país.\n"
+        "Em que seleção apostas para <b>campeã do Mundial</b>? Escreve o nome do país.\n"
         "(Vale +100 pontos no fim. Editável até ao jogo de abertura.)",
-        parse_mode=ParseMode.MARKDOWN,
+        parse_mode=ParseMode.HTML,
     )
     return ASK_CHAMPION
 
@@ -248,8 +250,8 @@ async def on_champion(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await update.message.reply_text(str(exc))
         return ConversationHandler.END
     await update.message.reply_text(
-        f"🏆 Aposta registada: *{escape_markdown(bet.team, version=1)}*.",
-        parse_mode=ParseMode.MARKDOWN,
+        f"🏆 Aposta registada: <b>{html.escape(bet.team)}</b>.",
+        parse_mode=ParseMode.HTML,
     )
     return ConversationHandler.END
 
@@ -264,11 +266,11 @@ async def cmd_tabela(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     text = fmt_standings(
         rows, "Classificação", highlight_id=update.effective_user.id
     )
-    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 
 async def cmd_ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(HELP, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(HELP, parse_mode=ParseMode.HTML)
 
 
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

@@ -101,7 +101,7 @@ class TestStandings:
 
     def test_highlight_own_row(self):
         out = fmt_standings(self._rows(), "Classificação", highlight_id=20)
-        assert "➤ *🥈 Bob — 8 pts*" in out
+        assert "➤ <b>🥈 Bob — 8 pts</b>" in out
 
     def test_rank_number_after_three(self):
         rows = self._rows() + [StandingRow(4, 40, "Dan", 2, 0)]
@@ -116,20 +116,23 @@ class TestStandings:
     def test_empty(self):
         assert "sem jogadores" in fmt_standings([], "T")
 
-    def test_nickname_markdown_escaped(self):
-        rows = [StandingRow(1, 10, "a_b_c", 5, 0)]
+    def test_nickname_html_escaped(self):
+        # HTML special chars in nicknames must be escaped, not break the message.
+        rows = [StandingRow(1, 10, "a<b>c", 5, 0)]
         out = fmt_standings(rows, "T")
-        # underscores escaped so they don't italicise in Telegram Markdown
-        assert "a\\_b\\_c" in out
+        assert "a&lt;b&gt;c" in out
+        # underscores are fine in HTML mode (no escaping needed)
+        rows2 = [StandingRow(1, 10, "a_b_c", 5, 0)]
+        assert "a_b_c" in fmt_standings(rows2, "T")
 
 
 class TestEscaping:
-    def test_team_name_with_markdown_escaped(self):
-        # External team names with markdown chars must not break formatting.
+    def test_team_name_with_html_escaped(self):
+        # External team names with HTML chars must not break formatting.
         v = PredictionView(match=a_match(2, 1), pred_home=2, pred_away=1, points=5)
-        v.match.home = "A*B"
+        v.match.home = "A&B"
         out = fmt_result_dm(v)
-        assert "A\\*B" in out
+        assert "A&amp;B" in out
 
 
 class TestMyPredictions:

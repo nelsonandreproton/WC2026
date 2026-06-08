@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from telegram.helpers import escape_markdown
+import html
 
 from wc2026bot.service import PredictionView
 from wc2026bot.standings import StandingRow
@@ -12,22 +12,28 @@ from wc2026bot.standings import StandingRow
 MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
 
 
-def _md(text: str) -> str:
-    """Escape user-controlled text for Telegram legacy Markdown (v1)."""
-    return escape_markdown(text, version=1)
+def _esc(text: str) -> str:
+    """Escape user/external text for Telegram HTML parse mode.
+
+    We use HTML (not legacy Markdown v1), which is fragile and non-deterministic
+    with punctuation adjacent to '*' — that exact bug rejected the /start
+    welcome message. HTML entities are explicit and reliably escapable.
+    """
+    return html.escape(text)
+
 
 WELCOME = (
-    "⚽ *Bólão Mundial 2026*\n\n"
+    "⚽ <b>Bólão Mundial 2026</b>\n\n"
     "Prevê o resultado de cada jogo. Pontuação:\n"
-    "• Acertar a direção (V/E/D): *+3*\n"
-    "• Acertar o resultado exato: *+2* extra (total 5)\n"
-    "• Apostar no campeão certo: *+100* no fim\n\n"
+    "• Acertar a direção (V/E/D): <b>+3</b>\n"
+    "• Acertar o resultado exato: <b>+2</b> extra (total 5)\n"
+    "• Apostar no campeão certo: <b>+100</b> no fim\n\n"
     "As previsões fecham uns minutos antes de cada jogo e ninguém vê as tuas.\n\n"
     "Comandos: /proximos /prever /minhas /campeao /tabela /nick /ajuda"
 )
 
 HELP = (
-    "*Comandos*\n"
+    "<b>Comandos</b>\n"
     "/proximos – jogos abertos para previsão\n"
     "/prever – fazer/editar uma previsão\n"
     "/minhas – as tuas previsões e pontos\n"
@@ -56,7 +62,7 @@ def fmt_countdown(lock_utc: datetime, now: datetime | None = None) -> str:
 
 def fmt_match_line(home: str, away: str, lock_utc: datetime,
                    now: datetime | None = None) -> str:
-    return f"{_md(home)} vs {_md(away)} — _{fmt_countdown(lock_utc, now)}_"
+    return f"{_esc(home)} vs {_esc(away)} — <i>{fmt_countdown(lock_utc, now)}</i>"
 
 
 def fmt_result_dm(view: PredictionView) -> str:
@@ -71,8 +77,8 @@ def fmt_result_dm(view: PredictionView) -> str:
         pts = view.points or 0
     emoji = "🎯" if pts == 5 else ("✅" if pts == 3 else "❌")
     return (
-        f"{emoji} *{_md(m.home)} {real} {_md(m.away)}*\n"
-        f"A tua previsão: {pred} · *{pts} pts*"
+        f"{emoji} <b>{_esc(m.home)} {real} {_esc(m.away)}</b>\n"
+        f"A tua previsão: {pred} · <b>{pts} pts</b>"
     )
 
 
@@ -84,8 +90,8 @@ def fmt_standings(
 ) -> str:
     """Standings table. The viewer's own row is bolded and marked with ➤."""
     if not rows:
-        return f"*{title}*\n(sem jogadores ainda)"
-    lines = [f"*{title}*"]
+        return f"<b>{_esc(title)}</b>\n(sem jogadores ainda)"
+    lines = [f"<b>{_esc(title)}</b>"]
     for r in rows:
         marker = MEDALS.get(r.rank, f"{r.rank}.")
         round_part = (
@@ -93,9 +99,9 @@ def fmt_standings(
             if show_round and r.round_points is not None
             else ""
         )
-        line = f"{marker} {_md(r.nickname)} — {r.total_points} pts{round_part}"
+        line = f"{marker} {_esc(r.nickname)} — {r.total_points} pts{round_part}"
         if highlight_id is not None and r.telegram_id == highlight_id:
-            line = f"➤ *{line}*"
+            line = f"➤ <b>{line}</b>"
         lines.append(line)
     return "\n".join(lines)
 
@@ -103,7 +109,7 @@ def fmt_standings(
 def fmt_my_predictions(views: list[PredictionView]) -> str:
     if not views:
         return "Ainda não fizeste previsões. Usa /prever."
-    lines = ["*As tuas previsões*"]
+    lines = ["<b>As tuas previsões</b>"]
     for v in views:
         m = v.match
         pred = (
@@ -116,5 +122,5 @@ def fmt_my_predictions(views: list[PredictionView]) -> str:
             real += f", {v.points or 0} pts)" if v.points is not None else ")"
         else:
             real = ""
-        lines.append(f"• {_md(m.home)} vs {_md(m.away)}: {pred}{real}")
+        lines.append(f"• {_esc(m.home)} vs {_esc(m.away)}: {pred}{real}")
     return "\n".join(lines)

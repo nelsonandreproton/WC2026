@@ -43,7 +43,7 @@ def _throttler(context: ContextTypes.DEFAULT_TYPE) -> Throttler:
 
 async def _send_one(context, chat_id: int, text: str) -> None:
     await context.bot.send_message(
-        chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN
+        chat_id=chat_id, text=text, parse_mode=ParseMode.HTML
     )
 
 
