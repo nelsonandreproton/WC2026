@@ -81,6 +81,20 @@ docker compose logs -f
 
 SQLite lives in the `wc2026bot_data` named volume at `/app/data/wc2026.db`.
 
+### Deploy (standalone)
+
+This bot is self-contained — it is **not** part of the homeserver orchestrator.
+It runs its own compose stack with its own named volume. On the server:
+
+```bash
+cd /home/garminbot/WC2026
+# create .env once (from .env.example) — never committed
+bash deploy.sh
+```
+
+`deploy.sh` syncs to `origin/main`, rebuilds, restarts, and checks the
+container is running.
+
 ## Tests
 
 ```bash
