@@ -64,7 +64,15 @@ def build_application(settings: Settings) -> Application:
         job_kwargs={"max_instances": 1, "coalesce": True},
     )
     # One sync shortly after startup so a fresh DB is populated immediately.
-    jq.run_once(job_sync_fixtures, when=2)
+    # `when` must clear the ~4s Telegram connect before the scheduler starts;
+    # misfire_grace_time lets it still run if startup is slow (otherwise
+    # APScheduler silently drops a "missed" one-off job and the DB stays empty
+    # until the next daily sync).
+    jq.run_once(
+        job_sync_fixtures,
+        when=15,
+        job_kwargs={"misfire_grace_time": 120},
+    )
 
     return app
 
