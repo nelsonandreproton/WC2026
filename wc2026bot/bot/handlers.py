@@ -47,12 +47,31 @@ ASK_NICK, PICK_MATCH, ASK_SCORE = range(3)
 ASK_CHAMPION = 10
 
 
+CANCEL_DATA = "cancel_flow"
+
+
 def _session(context: ContextTypes.DEFAULT_TYPE):
     return context.application.bot_data["session_factory"]()
 
 
 def _settings(context: ContextTypes.DEFAULT_TYPE):
     return context.application.bot_data["settings"]
+
+
+def _cancel_kb(extra_rows: list[list[InlineKeyboardButton]] | None = None):
+    """Inline keyboard with a Cancel button, optionally above other rows."""
+    rows = list(extra_rows or [])
+    rows.append([InlineKeyboardButton("✖️ Cancelar", callback_data=CANCEL_DATA)])
+    return InlineKeyboardMarkup(rows)
+
+
+async def on_cancel_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Inline '✖️ Cancelar' handler — ends any conversation without saving."""
+    query = update.callback_query
+    await query.answer()
+    context.user_data.clear()
+    await query.edit_message_text("Cancelado. Nada foi guardado.")
+    return ConversationHandler.END
 
 
 # --------------------------------------------------------------------------- #
@@ -68,6 +87,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
         "Bem-vindo! Escolhe o teu <b>nickname</b> (3–20 caracteres, letras/números/_):",
         parse_mode=ParseMode.HTML,
+        reply_markup=_cancel_kb(),
     )
     return ASK_NICK
 
@@ -146,7 +166,7 @@ async def cmd_prever(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         for m in matches[:20]
     ]
     await update.message.reply_text(
-        "Escolhe o jogo:", reply_markup=InlineKeyboardMarkup(buttons)
+        "Escolhe o jogo:", reply_markup=_cancel_kb(buttons)
     )
     return PICK_MATCH
 
@@ -159,6 +179,7 @@ async def on_match_picked(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await query.edit_message_text(
         "Escreve a tua previsão no formato <b>golos-golos</b> (ex.: <code>2-1</code>):",
         parse_mode=ParseMode.HTML,
+        reply_markup=_cancel_kb(),
     )
     return ASK_SCORE
 
@@ -232,6 +253,7 @@ async def cmd_campeao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         "Em que seleção apostas para <b>campeã do Mundial</b>? Escreve o nome do país.\n"
         "(Vale +100 pontos no fim. Editável até ao jogo de abertura.)",
         parse_mode=ParseMode.HTML,
+        reply_markup=_cancel_kb(),
     )
     return ASK_CHAMPION
 
@@ -281,10 +303,15 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 def build_handlers() -> list:
     """Return the handler list to register on the Application."""
+    # The inline '✖️ Cancelar' button works in any state of each conversation,
+    # so it lives in fallbacks alongside the /cancel command.
+    cancel_button = CallbackQueryHandler(on_cancel_button, pattern=f"^{CANCEL_DATA}$")
+    cancel_fallbacks = [cancel_button, CommandHandler("cancel", cmd_cancel)]
+
     start_conv = ConversationHandler(
         entry_points=[CommandHandler("start", cmd_start)],
         states={ASK_NICK: [MessageHandler(filters.TEXT & ~filters.COMMAND, on_nickname)]},
-        fallbacks=[CommandHandler("cancel", cmd_cancel)],
+        fallbacks=cancel_fallbacks,
     )
     prever_conv = ConversationHandler(
         entry_points=[CommandHandler("prever", cmd_prever)],
@@ -292,12 +319,12 @@ def build_handlers() -> list:
             PICK_MATCH: [CallbackQueryHandler(on_match_picked, pattern=r"^match:")],
             ASK_SCORE: [MessageHandler(filters.TEXT & ~filters.COMMAND, on_score)],
         },
-        fallbacks=[CommandHandler("cancel", cmd_cancel)],
+        fallbacks=cancel_fallbacks,
     )
     campeao_conv = ConversationHandler(
         entry_points=[CommandHandler("campeao", cmd_campeao)],
         states={ASK_CHAMPION: [MessageHandler(filters.TEXT & ~filters.COMMAND, on_champion)]},
-        fallbacks=[CommandHandler("cancel", cmd_cancel)],
+        fallbacks=cancel_fallbacks,
     )
     return [
         start_conv,
