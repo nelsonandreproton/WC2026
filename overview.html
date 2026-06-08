@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WC2026 Prediction Bot — Overview</title>
+<style>
+  :root { --bg:#0f1115; --card:#1a1d24; --accent:#2ecc71; --accent2:#3498db;
+          --text:#e6e6e6; --muted:#9aa4b2; --border:#2a2f3a; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+         background:var(--bg); color:var(--text); line-height:1.6; }
+  .wrap { max-width:920px; margin:0 auto; padding:40px 24px 80px; }
+  h1 { font-size:2.2rem; margin:0 0 4px; }
+  h1 .ball { color:var(--accent); }
+  .tag { display:inline-block; font-size:.75rem; background:#23527c; color:#dbeafe;
+         padding:2px 10px; border-radius:999px; margin-right:6px; }
+  .lead { color:var(--muted); font-size:1.1rem; margin:12px 0 32px; }
+  h2 { margin-top:40px; border-bottom:1px solid var(--border); padding-bottom:8px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px;
+          padding:20px 24px; margin:16px 0; }
+  table { width:100%; border-collapse:collapse; margin:12px 0; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); }
+  th { color:var(--accent2); font-weight:600; }
+  code { background:#11141a; padding:2px 6px; border-radius:5px; font-size:.9em; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; }
+  .pill { font-size:.85rem; color:var(--muted); }
+  .points { color:var(--accent); font-weight:700; }
+  ul { margin:8px 0; } li { margin:4px 0; }
+  .footer { margin-top:48px; color:var(--muted); font-size:.85rem; text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><span class="ball">⚽</span> WC2026 Prediction Bot</h1>
+  <div>
+    <span class="tag">Python 3.12</span>
+    <span class="tag">python-telegram-bot 22</span>
+    <span class="tag">SQLAlchemy 2.x · SQLite</span>
+    <span class="tag">APScheduler</span>
+    <span class="tag">Docker</span>
+  </div>
+  <p class="lead">
+    Bot de Telegram para um bólão do Campeonato do Mundo de Futebol 2026. Cada
+    jogador prevê o resultado exato de cada jogo, recebe por DM o resultado e os
+    seus pontos, e vê a classificação ao fim de cada ronda. Ninguém vê as
+    previsões dos outros.
+  </p>
+
+  <h2>Como pontua</h2>
+  <div class="card">
+    <table>
+      <tr><th>Acerto</th><th>Pontos</th></tr>
+      <tr><td>Direção (vitória / empate / derrota)</td><td class="points">+3</td></tr>
+      <tr><td>Resultado exato</td><td class="points">+2 extra (total 5)</td></tr>
+      <tr><td>Campeão do Mundial (aplicado após a final)</td><td class="points">+100</td></tr>
+    </table>
+    <ul>
+      <li>Empate conta como direção própria.</li>
+      <li>Mata-mata pontua pelo resultado aos <strong>90'</strong> (prolongamento e penáltis ignorados).</li>
+      <li>O campeão é resolvido por quem realmente avançou (inclui penáltis).</li>
+      <li>Previsões fecham <code>LOCK_MINUTES</code> antes do apito (default 15).</li>
+      <li>A aposta no campeão fecha no apito do jogo de abertura.</li>
+    </ul>
+  </div>
+
+  <h2>Comandos</h2>
+  <div class="card">
+    <table>
+      <tr><th>Comando</th><th>Ação</th></tr>
+      <tr><td><code>/start</code></td><td>Registo (pede um nickname único)</td></tr>
+      <tr><td><code>/nick</code></td><td>Mudar nickname</td></tr>
+      <tr><td><code>/proximos</code></td><td>Jogos abertos para previsão</td></tr>
+      <tr><td><code>/prever</code></td><td>Fazer/editar previsão (jogo → placar <code>2-1</code>)</td></tr>
+      <tr><td><code>/minhas</code></td><td>As tuas previsões e pontos</td></tr>
+      <tr><td><code>/campeao</code></td><td>Apostar no campeão (+100)</td></tr>
+      <tr><td><code>/tabela</code></td><td>Classificação atual (tua linha destacada)</td></tr>
+      <tr><td><code>/ajuda</code></td><td>Ajuda</td></tr>
+    </table>
+  </div>
+
+  <h2>Arquitetura</h2>
+  <div class="grid">
+    <div class="card"><strong>scoring.py</strong><div class="pill">Pontuação pura (direção / exato / campeão). 100% testado.</div></div>
+    <div class="card"><strong>service.py</strong><div class="pill">Lógica de negócio sobre a sessão (registo, prever, campeão).</div></div>
+    <div class="card"><strong>rounds.py</strong><div class="pill">Identidade canónica de ronda a partir de (stage, matchday).</div></div>
+    <div class="card"><strong>standings.py</strong><div class="pill">Classificação, conclusão de ronda, bónus de campeão.</div></div>
+    <div class="card"><strong>notifier.py</strong><div class="pill">Envio de DMs com throttling (respeita limites do Telegram).</div></div>
+    <div class="card"><strong>providers/</strong><div class="pill">Abstração FootballProvider + football-data.org + sync idempotente.</div></div>
+    <div class="card"><strong>bot/</strong><div class="pill">Handlers Telegram (finos) + formatação (escape de Markdown).</div></div>
+    <div class="card"><strong>scheduler/</strong><div class="pill">Jobs: sync, poll+score, publicar tabelas, campeão.</div></div>
+  </div>
+
+  <h2>Fonte de dados</h2>
+  <div class="card">
+    Resultados e calendário via <strong>football-data.org</strong> (tier grátis),
+    atrás de uma interface <code>FootballProvider</code> — trocar para outra API
+    (ex.: API-Football) é uma única classe nova. Polling em janelas de jogo, com
+    backoff e <strong>sem retry em HTTP 429</strong>. Os mata-mata vêm com
+    <code>matchday=null</code>, por isso a ronda é identificada pelo
+    <em>stage</em>, não pelo matchday.
+  </div>
+
+  <h2>Estado</h2>
+  <div class="card">
+    <strong>143 testes</strong> a passar — scoring, modelo de dados, sync, serviço,
+    classificação, notifier, jobs de orquestração e segurança (escape de Markdown).
+    Código de I/O é fino sobre lógica pura testável. Revisto por code-review e
+    auditoria de segurança (0 issues CRITICAL/HIGH).
+  </div>
+
+  <div class="footer">WC2026 Prediction Bot · uso pessoal · corre em Docker no Hetzner</div>
+</div>
+</body>
+</html>

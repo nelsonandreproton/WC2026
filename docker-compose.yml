@@ -1,0 +1,15 @@
+services:
+  wc2026bot:
+    build: .
+    image: wc2026bot:latest
+    container_name: wc2026bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - DB_PATH=/app/data/wc2026.db
+    volumes:
+      - wc2026bot_data:/app/data
+
+volumes:
+  wc2026bot_data:

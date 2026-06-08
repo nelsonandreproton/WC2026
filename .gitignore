@@ -1,0 +1,28 @@
+# Secrets — never commit
+.env
+*_tokens.json
+*_subscribers.json
+storage.json
+
+# Data
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
