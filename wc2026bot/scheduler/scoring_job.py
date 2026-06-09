@@ -23,12 +23,20 @@ class ScoredNotification:
     view: PredictionView
 
 
-def score_finished_matches(session: Session) -> list[ScoredNotification]:
+@dataclass(frozen=True)
+class ScoringResult:
+    notifications: list[ScoredNotification]
+    # Matches that just finished and need the all-player result broadcast.
+    newly_finished: list[Match]
+
+
+def score_finished_matches(session: Session) -> ScoringResult:
     """Score all unscored predictions on finished matches.
 
-    Returns one ScoredNotification per newly-scored prediction, for the
-    notifier to DM. Also stamps Match.finished_at the first time a match is
-    fully scored.
+    Returns a ScoringResult with:
+    - notifications: one entry per newly-scored prediction (personalized DM)
+    - newly_finished: matches that were just stamped finished_at (for the
+      all-player result broadcast, including matches nobody predicted)
     """
     stmt = (
         select(Match)
@@ -39,14 +47,14 @@ def score_finished_matches(session: Session) -> list[ScoredNotification]:
     finished = session.scalars(stmt).all()
 
     notifications: list[ScoredNotification] = []
+    newly_finished: list[Match] = []
+
     for match in finished:
         unscored = session.scalars(
             select(Prediction)
             .where(Prediction.match_id == match.id)
             .where(Prediction.points.is_(None))
         ).all()
-        if not unscored:
-            continue
 
         for pred in unscored:
             pred.points = score_prediction(
@@ -66,6 +74,7 @@ def score_finished_matches(session: Session) -> list[ScoredNotification]:
 
         if match.finished_at is None:
             match.finished_at = utcnow()
+            newly_finished.append(match)
 
     session.commit()
-    return notifications
+    return ScoringResult(notifications=notifications, newly_finished=newly_finished)

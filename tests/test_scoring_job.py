@@ -46,8 +46,8 @@ class TestScoreFinished:
         prediction(db_session, 2, m.id, 1, 0)   # direction -> 3
         prediction(db_session, 3, m.id, 0, 2)   # wrong -> 0
 
-        notes = score_finished_matches(db_session)
-        points = {n.telegram_id: n.view.points for n in notes}
+        result = score_finished_matches(db_session)
+        points = {n.telegram_id: n.view.points for n in result.notifications}
         assert points == {1: 5, 2: 3, 3: 0}
 
     def test_idempotent(self, db_session):
@@ -56,8 +56,24 @@ class TestScoreFinished:
         prediction(db_session, 1, m.id, 2, 1)
         first = score_finished_matches(db_session)
         second = score_finished_matches(db_session)
-        assert len(first) == 1
-        assert second == []  # nothing left to score
+        assert len(first.notifications) == 1
+        assert second.notifications == []
+
+    def test_idempotent_newly_finished_only_first_run(self, db_session):
+        player(db_session, 1, "P")
+        m = match(db_session)
+        prediction(db_session, 1, m.id, 2, 1)
+        first = score_finished_matches(db_session)
+        second = score_finished_matches(db_session)
+        assert len(first.newly_finished) == 1
+        assert second.newly_finished == []
+
+    def test_newly_finished_no_predictions(self, db_session):
+        # Match with no predictors still gets newly_finished entry.
+        match(db_session)
+        result = score_finished_matches(db_session)
+        assert len(result.newly_finished) == 1
+        assert result.notifications == []
 
     def test_stamps_finished_at(self, db_session):
         player(db_session, 1, "P")
@@ -76,7 +92,9 @@ class TestScoreFinished:
         db_session.add(m)
         db_session.commit()
         prediction(db_session, 1, m.id, 1, 0)
-        assert score_finished_matches(db_session) == []
+        result = score_finished_matches(db_session)
+        assert result.notifications == []
+        assert result.newly_finished == []
 
     def test_persists_points(self, db_session):
         player(db_session, 1, "P")

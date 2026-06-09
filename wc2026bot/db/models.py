@@ -131,6 +131,14 @@ class Match(Base):
     finished_at: Mapped[datetime | None] = mapped_column(
         UTCDateTime, nullable=True
     )
+    # Set once the "match starts in 30 min" DM batch is sent.
+    reminder_sent_at: Mapped[datetime | None] = mapped_column(
+        UTCDateTime, nullable=True
+    )
+    # Set once the result DM batch is sent to all active players.
+    result_broadcast_at: Mapped[datetime | None] = mapped_column(
+        UTCDateTime, nullable=True
+    )
 
     predictions: Mapped[list["Prediction"]] = relationship(
         back_populates="match", cascade="all, delete-orphan"

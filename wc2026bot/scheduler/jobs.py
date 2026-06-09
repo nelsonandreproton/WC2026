@@ -12,7 +12,14 @@ import logging
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-from wc2026bot.bot.formatting import fmt_result_dm, fmt_standings
+from datetime import timedelta
+
+from wc2026bot.bot.formatting import (
+    fmt_match_reminder,
+    fmt_result_broadcast,
+    fmt_result_dm,
+    fmt_standings,
+)
 from wc2026bot.notifier import OutboundDM, Throttler
 from wc2026bot.providers.sync import sync_fixtures
 from wc2026bot.scheduler.scoring_job import score_finished_matches
@@ -23,7 +30,7 @@ from wc2026bot.standings import (
     is_round_complete,
     round_points,
 )
-from wc2026bot.db.models import Round, utcnow
+from wc2026bot.db.models import Match, MatchStatus, Player, Prediction, Round, utcnow
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
@@ -64,11 +71,17 @@ async def job_sync_fixtures(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def job_poll_and_score(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Every N minutes: pull results, persist scores, score predictions, DM
+    """Every N minutes: send reminders, pull results, score predictions, DM
     each player their result, then publish any newly-complete round table.
 
+    Reminders run first (DB-only) so a provider outage never kills them.
     Registered with max_instances=1 + coalesce=True so a slow run never
     overlaps the next tick (also avoids SQLite 'database is locked')."""
+
+    # --- 1. Pre-match reminders (DB-only, safe even if provider is down) ---
+    await _send_reminders(context)
+
+    # --- 2. Fetch results from provider ---
     provider = context.application.bot_data["provider"]
     settings = _settings(context)
     try:
@@ -77,22 +90,96 @@ async def job_poll_and_score(context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.warning("poll fetch failed: %s", exc)
         return
 
+    # --- 3. Sync + score ---
     with _factory(context)() as session:
         sync_fixtures(session, results, lock_minutes=settings.lock_minutes)
-        notifications = score_finished_matches(session)
+        scoring = score_finished_matches(session)
 
-    # DM each player their result (throttled).
-    dms = [
+    # --- 4. DM each predictor their personalised result ---
+    pred_dms = [
         OutboundDM(chat_id=n.telegram_id, text=fmt_result_dm(n.view))
-        for n in notifications
+        for n in scoring.notifications
     ]
-    if dms:
+    if pred_dms:
         await _throttler(context).send_all(
-            lambda cid, txt: _send_one(context, cid, txt), dms
+            lambda cid, txt: _send_one(context, cid, txt), pred_dms
         )
+
+    # --- 5. DM all other active players a plain result for newly-finished matches ---
+    if scoring.newly_finished:
+        await _broadcast_results(context, scoring.newly_finished)
 
     await _publish_complete_rounds(context)
     await _maybe_apply_champion(context)
+
+
+async def _send_reminders(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """DM all active players for matches that start in ≤30 min (once per match)."""
+    now = utcnow()
+    window_end = now + timedelta(minutes=30)
+    factory = _factory(context)
+    with factory() as session:
+        upcoming = session.scalars(
+            select(Match)
+            .where(Match.status.in_([MatchStatus.SCHEDULED, MatchStatus.TIMED]))
+            .where(Match.kickoff_utc > now)
+            .where(Match.kickoff_utc <= window_end)
+            .where(Match.lock_utc > now)
+            .where(Match.reminder_sent_at.is_(None))
+        ).all()
+        if not upcoming:
+            return
+        active_ids = list(session.scalars(
+            select(Player.telegram_id).where(Player.is_active.is_(True))
+        ).all())
+
+    for match in upcoming:
+        msg = fmt_match_reminder(match)
+        dms = [OutboundDM(chat_id=uid, text=msg) for uid in active_ids]
+        if dms:
+            await _throttler(context).send_all(
+                lambda cid, txt: _send_one(context, cid, txt), dms
+            )
+        with factory() as session:
+            m = session.get(Match, match.id)
+            if m is not None and m.reminder_sent_at is None:
+                m.reminder_sent_at = utcnow()
+                session.commit()
+        logger.info("Reminder sent for match %s (%s vs %s)", match.id, match.home, match.away)
+
+
+async def _broadcast_results(
+    context: ContextTypes.DEFAULT_TYPE, matches: list[Match]
+) -> None:
+    """DM active players who did NOT predict each newly-finished match."""
+    factory = _factory(context)
+    for match in matches:
+        with factory() as session:
+            m = session.get(Match, match.id)
+            if m is None or m.result_broadcast_at is not None:
+                continue
+            active_ids = set(session.scalars(
+                select(Player.telegram_id).where(Player.is_active.is_(True))
+            ).all())
+            predicted_ids = set(session.scalars(
+                select(Prediction.player_id).where(Prediction.match_id == match.id)
+            ).all())
+            non_predictors = active_ids - predicted_ids
+
+        if non_predictors:
+            msg = fmt_result_broadcast(match)
+            dms = [OutboundDM(chat_id=uid, text=msg) for uid in non_predictors]
+            await _throttler(context).send_all(
+                lambda cid, txt: _send_one(context, cid, txt), dms
+            )
+
+        with factory() as session:
+            m = session.get(Match, match.id)
+            if m is not None and m.result_broadcast_at is None:
+                m.result_broadcast_at = utcnow()
+                session.commit()
+        logger.info("Result broadcast sent for match %s (%s vs %s)",
+                    match.id, match.home, match.away)
 
 
 async def _publish_complete_rounds(context: ContextTypes.DEFAULT_TYPE) -> None:

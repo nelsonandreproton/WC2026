@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 import html
 
+from wc2026bot.db.models import Match
 from wc2026bot.service import PredictionView
 from wc2026bot.standings import StandingRow
 
+_LISBON = ZoneInfo("Europe/Lisbon")
+
 MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+
+def to_lisbon(dt: datetime) -> datetime:
+    """Convert a UTC-aware datetime to Europe/Lisbon for display."""
+    return dt.astimezone(_LISBON)
 
 
 def _esc(text: str) -> str:
@@ -124,3 +133,22 @@ def fmt_my_predictions(views: list[PredictionView], total_matches: int) -> str:
             real = ""
         lines.append(f"• {_esc(m.home)} vs {_esc(m.away)}: {pred}{real}")
     return "\n".join(lines)
+
+
+def fmt_match_reminder(match: Match) -> str:
+    """DM sent ~30 min before a match kicks off (to all active players)."""
+    kickoff_lisbon = to_lisbon(match.kickoff_utc)
+    time_str = kickoff_lisbon.strftime("%H:%M")
+    return (
+        f"⏰ <b>{_esc(match.home)} vs {_esc(match.away)}</b> começa às {time_str}!\n"
+        "Ainda tens tempo de fazer a tua previsão com /prever."
+    )
+
+
+def fmt_result_broadcast(match: Match) -> str:
+    """DM sent after a match finishes to players who did NOT predict."""
+    return (
+        f"⚽ <b>{_esc(match.home)} {match.home_score}-{match.away_score} "
+        f"{_esc(match.away)}</b>\n"
+        "Não tinhas previsão para este jogo."
+    )

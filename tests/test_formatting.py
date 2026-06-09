@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from wc2026bot.bot.formatting import (
     fmt_countdown,
+    fmt_match_reminder,
     fmt_my_predictions,
+    fmt_result_broadcast,
     fmt_result_dm,
     fmt_standings,
+    to_lisbon,
 )
 from wc2026bot.standings import StandingRow
 from wc2026bot.bot.handlers import parse_score
@@ -16,6 +20,7 @@ from wc2026bot.db.models import Match, MatchStatus
 from wc2026bot.service import PredictionView
 
 NOW = datetime(2026, 6, 11, 12, 0, tzinfo=UTC)
+_LISBON = ZoneInfo("Europe/Lisbon")
 
 
 def a_match(home_score=None, away_score=None) -> Match:
@@ -148,3 +153,64 @@ class TestMyPredictions:
         v = PredictionView(match=a_match(2, 1), pred_home=2, pred_away=1, points=5)
         out = fmt_my_predictions([v], 109)
         assert "(1/109)" in out
+
+
+class TestToLisbon:
+    def test_summer_utc1(self):
+        # June: Lisbon is UTC+1 (WEST)
+        utc_dt = datetime(2026, 6, 11, 15, 0, tzinfo=UTC)
+        lisbon = to_lisbon(utc_dt)
+        assert lisbon.hour == 16
+        assert lisbon.tzinfo == _LISBON
+
+    def test_winter_utc0(self):
+        # December: Lisbon is UTC+0 (WET)
+        utc_dt = datetime(2026, 12, 1, 15, 0, tzinfo=UTC)
+        lisbon = to_lisbon(utc_dt)
+        assert lisbon.hour == 15
+
+
+def _a_scheduled_match(kickoff_utc: datetime) -> Match:
+    return Match(
+        ext_id=2, matchday=1, stage="GROUP_STAGE", home="Brazil", away="Argentina",
+        kickoff_utc=kickoff_utc, lock_utc=kickoff_utc - timedelta(minutes=15),
+        status=MatchStatus.SCHEDULED, home_score=None, away_score=None,
+    )
+
+
+class TestReminderFormat:
+    def test_contains_teams(self):
+        m = _a_scheduled_match(NOW + timedelta(minutes=25))
+        out = fmt_match_reminder(m)
+        assert "Brazil" in out and "Argentina" in out
+
+    def test_shows_lisbon_time(self):
+        # 15:00 UTC in June → 16:00 Lisbon
+        kickoff = datetime(2026, 6, 11, 15, 0, tzinfo=UTC)
+        m = _a_scheduled_match(kickoff)
+        out = fmt_match_reminder(m)
+        assert "16:00" in out
+
+    def test_html_escaped(self):
+        m = _a_scheduled_match(NOW + timedelta(minutes=25))
+        m.home = "A&B"
+        out = fmt_match_reminder(m)
+        assert "A&amp;B" in out
+
+
+class TestResultBroadcast:
+    def test_contains_score(self):
+        m = a_match(3, 1)
+        out = fmt_result_broadcast(m)
+        assert "3-1" in out and "Portugal" in out and "Spain" in out
+
+    def test_no_prediction_text(self):
+        m = a_match(1, 0)
+        out = fmt_result_broadcast(m)
+        assert "previsão" in out
+
+    def test_html_escaped(self):
+        m = a_match(1, 0)
+        m.away = "C&D"
+        out = fmt_result_broadcast(m)
+        assert "C&amp;D" in out
