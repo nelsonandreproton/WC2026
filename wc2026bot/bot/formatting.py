@@ -106,10 +106,10 @@ def fmt_standings(
     return "\n".join(lines)
 
 
-def fmt_my_predictions(views: list[PredictionView]) -> str:
+def fmt_my_predictions(views: list[PredictionView], total_matches: int) -> str:
     if not views:
         return "Ainda não fizeste previsões. Usa /prever."
-    lines = ["<b>As tuas previsões</b>"]
+    lines = [f"<b>As tuas previsões</b> ({len(views)}/{total_matches})"]
     for v in views:
         m = v.match
         pred = (

@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from wc2026bot.db.models import (
@@ -227,6 +227,11 @@ def my_predictions(session: Session, telegram_id: int) -> list[PredictionView]:
         )
         for p, m in rows
     ]
+
+
+def count_all_matches(session: Session) -> int:
+    """Total number of matches in the tournament."""
+    return session.execute(select(func.count()).select_from(Match)).scalar_one()
 
 
 # --------------------------------------------------------------------------- #

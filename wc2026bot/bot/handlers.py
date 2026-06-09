@@ -32,6 +32,7 @@ from wc2026bot.standings import compute_standings
 from wc2026bot.service import (
     ServiceError,
     change_nickname,
+    count_all_matches,
     get_player,
     my_predictions,
     open_matches,
@@ -177,14 +178,16 @@ async def cmd_proximos(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 # /prever  (conversation: pick match -> enter score)
 # --------------------------------------------------------------------------- #
 
-def _build_prever_view(views, show_all: bool) -> tuple[str, InlineKeyboardMarkup]:
+def _build_prever_view(
+    views, show_all: bool, pending_count: int
+) -> tuple[str, InlineKeyboardMarkup]:
     """Build the match-picker text + keyboard. Predicted matches (in show-all
-    mode) are flagged with ✏️ and their current score."""
+    mode) are flagged with ✅ on the right."""
     buttons = []
     for v in views[:20]:
         m = v.match
         if v.has_prediction:
-            label = f"✏️ {m.home} {v.pred_home}-{v.pred_away} {m.away}"
+            label = f"{m.home} {v.pred_home}-{v.pred_away} {m.away} ✅"
         else:
             label = f"{m.home} vs {m.away}"
         buttons.append([InlineKeyboardButton(label, callback_data=f"match:{m.id}")])
@@ -193,12 +196,12 @@ def _build_prever_view(views, show_all: bool) -> tuple[str, InlineKeyboardMarkup
         toggle = InlineKeyboardButton(
             "🔵 A mostrar todos — ver só por prever", callback_data="prever:pending"
         )
-        header = "Escolhe o jogo (✏️ = já tens previsão):"
+        header = f"Escolhe o jogo (✅ = já tens previsão) ({pending_count} em falta):"
     else:
         toggle = InlineKeyboardButton(
             "👁 Ver todos (incl. já previstos)", callback_data="prever:all"
         )
-        header = "Escolhe um jogo por prever:"
+        header = f"Escolhe um jogo por prever: ({pending_count} jogos em falta)"
 
     extra = [[toggle]] + buttons
     return header, _cancel_kb(extra)
@@ -213,6 +216,11 @@ async def _send_prever(update: Update, context: ContextTypes.DEFAULT_TYPE,
             await target.reply_text("Usa /start primeiro.")
             return ConversationHandler.END
         views = open_matches_for_player(session, uid, only_unpredicted=not show_all)
+        pending_count = (
+            len(views)
+            if not show_all
+            else len(open_matches_for_player(session, uid, only_unpredicted=True))
+        )
 
     if not views:
         msg = (
@@ -236,7 +244,7 @@ async def _send_prever(update: Update, context: ContextTypes.DEFAULT_TYPE,
             await update.message.reply_text(msg)
         return ConversationHandler.END
 
-    header, kb = _build_prever_view(views, show_all)
+    header, kb = _build_prever_view(views, show_all, pending_count)
     if edit:
         await update.callback_query.edit_message_text(header, reply_markup=kb)
     else:
@@ -320,8 +328,9 @@ async def on_score(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def cmd_minhas(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     with _session(context) as session:
         views = my_predictions(session, update.effective_user.id)
+        total = count_all_matches(session)
     await update.message.reply_text(
-        fmt_my_predictions(views), parse_mode=ParseMode.HTML
+        fmt_my_predictions(views, total), parse_mode=ParseMode.HTML
     )
 
 

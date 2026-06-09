@@ -137,9 +137,14 @@ class TestEscaping:
 
 class TestMyPredictions:
     def test_empty(self):
-        assert "Ainda não" in fmt_my_predictions([])
+        assert "Ainda não" in fmt_my_predictions([], 109)
 
     def test_with_result(self):
         v = PredictionView(match=a_match(2, 1), pred_home=2, pred_away=1, points=5)
-        out = fmt_my_predictions([v])
+        out = fmt_my_predictions([v], 109)
         assert "Portugal vs Spain" in out and "2-1" in out
+
+    def test_shows_count(self):
+        v = PredictionView(match=a_match(2, 1), pred_home=2, pred_away=1, points=5)
+        out = fmt_my_predictions([v], 109)
+        assert "(1/109)" in out
