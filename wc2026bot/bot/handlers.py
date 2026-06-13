@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import logging
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 import html
 from telegram.ext import (
+    Application,
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
@@ -23,17 +24,23 @@ from telegram.ext import (
 
 from wc2026bot.bot.formatting import (
     HELP,
+    LISBON_TZ,
     WELCOME,
+    fmt_kickoff_short,
+    fmt_match_header,
     fmt_match_line,
     fmt_my_predictions,
     fmt_standings,
+    fmt_today,
 )
 from wc2026bot.standings import compute_standings
 from wc2026bot.service import (
     ServiceError,
     change_nickname,
     count_all_matches,
+    get_match,
     get_player,
+    matches_today,
     my_predictions,
     open_matches,
     open_matches_for_player,
@@ -51,6 +58,23 @@ ASK_NEW_NICK = 20
 
 
 CANCEL_DATA = "cancel_flow"
+
+# Shown in Telegram's command menu (the list that pops up when typing "/").
+BOT_COMMANDS = [
+    BotCommand("hoje", "jogos de hoje e horários"),
+    BotCommand("proximos", "jogos abertos para previsão"),
+    BotCommand("prever", "fazer/editar uma previsão"),
+    BotCommand("minhas", "as tuas previsões e pontos"),
+    BotCommand("campeao", "apostar no campeão do Mundial (+100)"),
+    BotCommand("tabela", "ver a tua posição atual"),
+    BotCommand("nick", "mudar o teu nickname"),
+    BotCommand("ajuda", "lista de comandos"),
+]
+
+
+async def post_init(application: Application) -> None:
+    """Register the command menu with Telegram once, at startup."""
+    await application.bot.set_my_commands(BOT_COMMANDS)
 
 
 def _session(context: ContextTypes.DEFAULT_TYPE):
@@ -158,6 +182,16 @@ async def _apply_nick(update: Update, context: ContextTypes.DEFAULT_TYPE, text: 
 
 
 # --------------------------------------------------------------------------- #
+# /hoje
+# --------------------------------------------------------------------------- #
+
+async def cmd_hoje(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    with _session(context) as session:
+        matches = matches_today(session, LISBON_TZ)
+    await update.message.reply_text(fmt_today(matches), parse_mode=ParseMode.HTML)
+
+
+# --------------------------------------------------------------------------- #
 # /proximos
 # --------------------------------------------------------------------------- #
 
@@ -186,10 +220,11 @@ def _build_prever_view(
     buttons = []
     for v in views[:20]:
         m = v.match
+        when = fmt_kickoff_short(m.kickoff_utc)
         if v.has_prediction:
-            label = f"{m.home} {v.pred_home}-{v.pred_away} {m.away} ✅"
+            label = f"{when} · {m.home} {v.pred_home}-{v.pred_away} {m.away} ✅"
         else:
-            label = f"{m.home} vs {m.away}"
+            label = f"{when} · {m.home} vs {m.away}"
         buttons.append([InlineKeyboardButton(label, callback_data=f"match:{m.id}")])
 
     if show_all:
@@ -269,8 +304,12 @@ async def on_match_picked(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await query.answer()
     match_id = int(query.data.split(":", 1)[1])
     context.user_data["match_id"] = match_id
+    with _session(context) as session:
+        match = get_match(session, match_id)
+    header = f"{fmt_match_header(match)}\n\n" if match is not None else ""
     await query.edit_message_text(
-        "Escreve a tua previsão no formato <b>golos-golos</b> (ex.: <code>2-1</code>):",
+        f"{header}Escreve a tua previsão no formato <b>golos-golos</b> "
+        "(ex.: <code>2-1</code>):",
         parse_mode=ParseMode.HTML,
         reply_markup=_cancel_kb(),
     )
@@ -433,6 +472,7 @@ def build_handlers() -> list:
         prever_conv,
         campeao_conv,
         nick_conv,
+        CommandHandler("hoje", cmd_hoje),
         CommandHandler("proximos", cmd_proximos),
         CommandHandler("minhas", cmd_minhas),
         CommandHandler("tabela", cmd_tabela),

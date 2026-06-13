@@ -6,12 +6,16 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from zoneinfo import ZoneInfo
+
 from wc2026bot.db.models import Match, MatchStatus
 from wc2026bot.service import (
     ServiceError,
     change_nickname,
     get_champion_bet,
+    get_match,
     is_locked,
+    matches_today,
     my_predictions,
     open_matches,
     open_matches_for_player,
@@ -22,6 +26,7 @@ from wc2026bot.service import (
 )
 
 NOW = datetime(2026, 6, 11, 12, 0, tzinfo=UTC)
+_LISBON = ZoneInfo("Europe/Lisbon")
 
 
 def add_match(
@@ -141,6 +146,39 @@ class TestOpenMatchesForPlayer:
         views = open_matches_for_player(db_session, 1, only_unpredicted=True, now=NOW)
         assert [v.match.id for v in views] == [m1.id]
         assert views[0].has_prediction is False
+
+
+class TestMatchesToday:
+    def test_includes_only_current_day(self, db_session):
+        # NOW = 2026-06-11 12:00 UTC (Lisbon = 13:00, same calendar day).
+        today = add_match(db_session, ext_id=1, kickoff=NOW + timedelta(hours=3))
+        add_match(db_session, ext_id=2, kickoff=NOW + timedelta(days=1))
+        add_match(db_session, ext_id=3, kickoff=NOW - timedelta(days=1))
+        result = matches_today(db_session, _LISBON, now=NOW)
+        assert [m.ext_id for m in result] == [today.ext_id]
+
+    def test_includes_finished_matches(self, db_session):
+        add_match(db_session, ext_id=1, kickoff=NOW - timedelta(hours=2),
+                  status=MatchStatus.FINISHED)
+        result = matches_today(db_session, _LISBON, now=NOW)
+        assert [m.ext_id for m in result] == [1]
+
+    def test_ordered_by_kickoff(self, db_session):
+        add_match(db_session, ext_id=1, kickoff=NOW + timedelta(hours=5))
+        add_match(db_session, ext_id=2, kickoff=NOW + timedelta(hours=2))
+        result = matches_today(db_session, _LISBON, now=NOW)
+        assert [m.ext_id for m in result] == [2, 1]
+
+    def test_empty_when_no_games(self, db_session):
+        add_match(db_session, ext_id=1, kickoff=NOW + timedelta(days=2))
+        assert matches_today(db_session, _LISBON, now=NOW) == []
+
+
+class TestGetMatch:
+    def test_found_and_missing(self, db_session):
+        m = add_match(db_session)
+        assert get_match(db_session, m.id).id == m.id
+        assert get_match(db_session, 99999) is None
 
 
 class TestLock:
