@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, tzinfo
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -107,6 +107,29 @@ def open_matches(session: Session, now: datetime | None = None) -> list[Match]:
 
 def is_locked(match: Match, now: datetime | None = None) -> bool:
     return _now(now) >= match.lock_utc
+
+
+def get_match(session: Session, match_id: int) -> Match | None:
+    return session.get(Match, match_id)
+
+
+def matches_today(
+    session: Session, display_tz: tzinfo, now: datetime | None = None
+) -> list[Match]:
+    """All matches kicking off on the current calendar day in `display_tz`.
+
+    Includes finished/in-play matches (not just open ones), soonest first.
+    """
+    local_now = _now(now).astimezone(display_tz)
+    day_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
+    stmt = (
+        select(Match)
+        .where(Match.kickoff_utc >= day_start.astimezone(UTC))
+        .where(Match.kickoff_utc < day_end.astimezone(UTC))
+        .order_by(Match.kickoff_utc.asc())
+    )
+    return list(session.scalars(stmt).all())
 
 
 @dataclass(frozen=True)

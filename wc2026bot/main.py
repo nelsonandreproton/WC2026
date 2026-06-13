@@ -13,7 +13,7 @@ from datetime import time, timezone
 
 from telegram.ext import Application
 
-from wc2026bot.bot.handlers import build_handlers
+from wc2026bot.bot.handlers import build_handlers, post_init
 from wc2026bot.config import Settings
 from wc2026bot.db.session import init_db, make_engine, make_session_factory
 from wc2026bot.notifier import Throttler
@@ -40,7 +40,12 @@ def build_application(settings: Settings) -> Application:
         api_key=settings.football_data_api_key, competition=settings.competition
     )
 
-    app = Application.builder().token(settings.telegram_token).build()
+    app = (
+        Application.builder()
+        .token(settings.telegram_token)
+        .post_init(post_init)
+        .build()
+    )
     app.bot_data.update(
         {
             "settings": settings,

@@ -12,6 +12,8 @@ from wc2026bot.service import PredictionView
 from wc2026bot.standings import StandingRow
 
 _LISBON = ZoneInfo("Europe/Lisbon")
+# Public alias for callers that need the display timezone (e.g. day windows).
+LISBON_TZ = _LISBON
 
 MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
 
@@ -19,6 +21,11 @@ MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
 def to_lisbon(dt: datetime) -> datetime:
     """Convert a UTC-aware datetime to Europe/Lisbon for display."""
     return dt.astimezone(_LISBON)
+
+
+def fmt_kickoff_short(kickoff_utc: datetime) -> str:
+    """Compact 'dd/mm HH:MM' kickoff in Lisbon time, for button labels."""
+    return to_lisbon(kickoff_utc).strftime("%d/%m %H:%M")
 
 
 def _esc(text: str) -> str:
@@ -33,6 +40,7 @@ def _esc(text: str) -> str:
 
 HELP = (
     "<b>Comandos</b>\n"
+    "/hoje – jogos de hoje e horários\n"
     "/proximos – jogos abertos para previsão\n"
     "/prever – fazer/editar uma previsão\n"
     "/minhas – as tuas previsões e pontos\n"
@@ -72,6 +80,26 @@ def fmt_countdown(lock_utc: datetime, now: datetime | None = None) -> str:
 def fmt_match_line(home: str, away: str, lock_utc: datetime,
                    now: datetime | None = None) -> str:
     return f"{_esc(home)} vs {_esc(away)} — <i>{fmt_countdown(lock_utc, now)}</i>"
+
+
+def fmt_today(matches: list[Match]) -> str:
+    """List of today's matches with kickoff time (and result if finished)."""
+    if not matches:
+        return "Não há jogos hoje. ⚽"
+    lines = ["<b>Jogos de hoje</b>"]
+    for m in matches:
+        time_str = to_lisbon(m.kickoff_utc).strftime("%H:%M")
+        line = f"• <b>{time_str}</b> {_esc(m.home)} vs {_esc(m.away)}"
+        if m.home_score is not None:
+            line += f" — {m.home_score}-{m.away_score}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def fmt_match_header(match: Match) -> str:
+    """One-line header naming a match and its kickoff, for the /prever flow."""
+    when = to_lisbon(match.kickoff_utc).strftime("%d/%m às %H:%M")
+    return f"<b>{_esc(match.home)} vs {_esc(match.away)}</b>\n🗓 {when}"
 
 
 def fmt_result_dm(view: PredictionView) -> str:

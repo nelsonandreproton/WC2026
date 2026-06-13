@@ -7,11 +7,14 @@ from zoneinfo import ZoneInfo
 
 from wc2026bot.bot.formatting import (
     fmt_countdown,
+    fmt_kickoff_short,
+    fmt_match_header,
     fmt_match_reminder,
     fmt_my_predictions,
     fmt_result_broadcast,
     fmt_result_dm,
     fmt_standings,
+    fmt_today,
     to_lisbon,
 )
 from wc2026bot.standings import StandingRow
@@ -196,6 +199,46 @@ class TestReminderFormat:
         m.home = "A&B"
         out = fmt_match_reminder(m)
         assert "A&amp;B" in out
+
+
+class TestToday:
+    def test_empty(self):
+        assert "Não há jogos hoje" in fmt_today([])
+
+    def test_shows_lisbon_time_and_teams(self):
+        # 15:00 UTC in June → 16:00 Lisbon
+        m = _a_scheduled_match(datetime(2026, 6, 11, 15, 0, tzinfo=UTC))
+        out = fmt_today([m])
+        assert "16:00" in out and "Brazil" in out and "Argentina" in out
+
+    def test_shows_score_when_finished(self):
+        m = a_match(3, 1)  # Portugal 3-1 Spain, kicked at NOW
+        out = fmt_today([m])
+        assert "3-1" in out and "Portugal" in out
+
+    def test_html_escaped(self):
+        m = _a_scheduled_match(NOW + timedelta(hours=1))
+        m.home = "A&B"
+        assert "A&amp;B" in fmt_today([m])
+
+
+class TestMatchHeader:
+    def test_contains_teams_and_kickoff(self):
+        m = _a_scheduled_match(datetime(2026, 6, 11, 15, 0, tzinfo=UTC))
+        out = fmt_match_header(m)
+        assert "Brazil" in out and "Argentina" in out
+        assert "11/06" in out and "16:00" in out
+
+    def test_html_escaped(self):
+        m = _a_scheduled_match(NOW + timedelta(hours=1))
+        m.away = "C&D"
+        assert "C&amp;D" in fmt_match_header(m)
+
+
+class TestKickoffShort:
+    def test_format(self):
+        # 15:00 UTC in June → 16:00 Lisbon, 11/06
+        assert fmt_kickoff_short(datetime(2026, 6, 11, 15, 0, tzinfo=UTC)) == "11/06 16:00"
 
 
 class TestResultBroadcast:
