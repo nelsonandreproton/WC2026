@@ -289,6 +289,8 @@ async def _send_prever(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
 async def cmd_prever(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # Default: only matches without a prediction yet.
+    # Clear stale state from a previous incomplete conversation.
+    context.user_data.clear()
     return await _send_prever(update, context, show_all=False, edit=False)
 
 
@@ -456,6 +458,7 @@ def build_handlers() -> list:
             ASK_SCORE: [MessageHandler(filters.TEXT & ~filters.COMMAND, on_score)],
         },
         fallbacks=cancel_fallbacks,
+        allow_reentry=True,
     )
     campeao_conv = ConversationHandler(
         entry_points=[CommandHandler("campeao", cmd_campeao)],
