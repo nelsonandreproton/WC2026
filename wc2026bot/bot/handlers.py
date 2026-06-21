@@ -212,13 +212,29 @@ async def cmd_proximos(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 # /prever  (conversation: pick match -> enter score)
 # --------------------------------------------------------------------------- #
 
+# Matches shown per page. Small enough that the message fits on screen so
+# Telegram keeps the start of the list visible instead of scrolling to the
+# bottom of a long keyboard.
+PREVER_PAGE_SIZE = 5
+
+
 def _build_prever_view(
-    views, show_all: bool, pending_count: int
+    views, show_all: bool, pending_count: int, page: int = 0
 ) -> tuple[str, InlineKeyboardMarkup]:
-    """Build the match-picker text + keyboard. Predicted matches (in show-all
-    mode) are flagged with ✅ on the right."""
+    """Build the match-picker text + keyboard for one page. Predicted matches
+    (in show-all mode) are flagged with ✅ on the right.
+
+    The list is paginated (PREVER_PAGE_SIZE per page) so the message stays
+    short and the first (soonest) match remains visible at the top, rather
+    than Telegram scrolling to the bottom of a long keyboard."""
+    total = len(views)
+    page_count = max(1, (total + PREVER_PAGE_SIZE - 1) // PREVER_PAGE_SIZE)
+    page = max(0, min(page, page_count - 1))
+    start = page * PREVER_PAGE_SIZE
+    page_views = views[start:start + PREVER_PAGE_SIZE]
+
     buttons = []
-    for v in views[:20]:
+    for v in page_views:
         m = v.match
         when = fmt_kickoff_short(m.kickoff_utc)
         if v.has_prediction:
@@ -238,12 +254,26 @@ def _build_prever_view(
         )
         header = f"Escolhe um jogo por prever: ({pending_count} jogos em falta)"
 
+    mode = "all" if show_all else "pending"
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(
+            "⬅️ Anteriores", callback_data=f"preverpage:{mode}:{page - 1}"))
+    if page < page_count - 1:
+        nav.append(InlineKeyboardButton(
+            "Mais jogos ➡️", callback_data=f"preverpage:{mode}:{page + 1}"))
+
+    if page_count > 1:
+        header += f"\n(página {page + 1}/{page_count})"
+
     extra = [[toggle]] + buttons
+    if nav:
+        extra.append(nav)
     return header, _cancel_kb(extra)
 
 
 async def _send_prever(update: Update, context: ContextTypes.DEFAULT_TYPE,
-                       show_all: bool, edit: bool) -> int:
+                       show_all: bool, edit: bool, page: int = 0) -> int:
     uid = update.effective_user.id
     with _session(context) as session:
         if get_player(session, uid) is None:
@@ -279,7 +309,7 @@ async def _send_prever(update: Update, context: ContextTypes.DEFAULT_TYPE,
             await update.message.reply_text(msg)
         return ConversationHandler.END
 
-    header, kb = _build_prever_view(views, show_all, pending_count)
+    header, kb = _build_prever_view(views, show_all, pending_count, page)
     if edit:
         await update.callback_query.edit_message_text(header, reply_markup=kb)
     else:
@@ -299,6 +329,16 @@ async def on_prever_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await query.answer()
     show_all = query.data == "prever:all"
     return await _send_prever(update, context, show_all=show_all, edit=True)
+
+
+async def on_prever_page(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    _, mode, page_str = query.data.split(":")
+    show_all = mode == "all"
+    return await _send_prever(
+        update, context, show_all=show_all, edit=True, page=int(page_str)
+    )
 
 
 async def on_match_picked(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -453,6 +493,7 @@ def build_handlers() -> list:
         states={
             PICK_MATCH: [
                 CallbackQueryHandler(on_prever_toggle, pattern=r"^prever:(all|pending)$"),
+                CallbackQueryHandler(on_prever_page, pattern=r"^preverpage:(all|pending):\d+$"),
                 CallbackQueryHandler(on_match_picked, pattern=r"^match:"),
             ],
             ASK_SCORE: [MessageHandler(filters.TEXT & ~filters.COMMAND, on_score)],
